@@ -1,0 +1,24 @@
+{
+  "name": "pongBR-physics",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81",
+    "blessed-contrib": "^4.11.0",
+    "dotenv": "^17.2.3",
+    "nats": "^2.29.3",
+    "protobufjs": "^7.5.4",
+    "raylib": "^0.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "nodemon": "^3.1.10",
+    "vitest": "^1.0.0"
+  }
+}

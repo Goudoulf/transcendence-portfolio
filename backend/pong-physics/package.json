@@ -1,0 +1,24 @@
+{
+  "name": "pong-physics",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node --inspect=0.0.0.0:9229 src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "vitest",
+    "debug:ascii": "node debug/debug-client.js",
+    "debug:blessed": "node debug/debug-client-blessed.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "nats": "^2.29.3",
+    "protobufjs": "^7.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "blessed": "^0.1.0",
+    "nodemon": "^2.0.22",
+    "vitest": "^1.0.0"
+  }
+}

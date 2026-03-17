@@ -1,0 +1,126 @@
+// src/uwsServer.js
+import { readFileSync } from 'fs';
+import uWS from 'uWebSockets.js';
+import {
+	decodeClientMessage,
+	encodeServerMessage
+} from './proto/helper.js';
+
+const sockets = new Map(); // lobbyId → Set<ws>
+
+export function createUwsApp(path, lobbyService) {
+	const key = readFileSync(process.env.SSL_KEY || './ssl/key.pem', 'utf8');
+	const cert = readFileSync(process.env.SSL_CERT || './ssl/cert.pem', 'utf8');
+	const app = uWS.SSLApp({
+		key_file_name: process.env.SSL_KEY,
+		cert_file_name: process.env.SSL_CERT
+	});
+
+	app.ws(path, {
+		idleTimeout: 60,
+
+		upgrade: (res, req, context) => {
+			const fullQuery = req.getQuery();           // e.g. "?uuid=abcd&lobbyId=1234"
+			const params = new URLSearchParams(fullQuery);
+			const session = {
+				userId: params.get('uuid'),
+				lobbyId: params.get('lobbyId')
+			};
+			res.upgrade(
+				session,
+				req.getHeader('sec-websocket-key'),
+				req.getHeader('sec-websocket-protocol'),
+				req.getHeader('sec-websocket-extensions'),
+				context
+			);
+		},
+
+		open: (ws) => {
+			ws.isAlive = true;
+			const { lobbyId } = ws;
+			sockets.set(lobbyId, sockets.get(lobbyId) || new Set());
+			sockets.get(lobbyId).add(ws);
+			console.log(`JOIN: ${lobbyId}|${ws.userId}`);
+
+			try {
+				const state = lobbyService.join(lobbyId, ws.userId);
+				if (!state) {
+					const buf = encodeServerMessage({ error: { message: "Lobby not found" } });
+					ws.send(buf, true);
+					ws.close();
+					return;
+				}
+				const buf = encodeServerMessage({ update: state });
+				ws.subscribe(lobbyId);
+				app.publish(lobbyId, buf, true);
+			} catch (err) {
+				console.error(`Error joining lobby: ${err.message}`);
+				const buf = encodeServerMessage({ error: { message: err.message } });
+				ws.send(buf, true);
+				ws.close();
+			}
+		},
+
+		message: async (ws, message, isBinary) => {
+			const buf = new Uint8Array(message);
+			const payload = decodeClientMessage(buf);
+			let newState;
+
+			try {
+				if (payload.quit) {
+					newState = lobbyService.quit(payload.quit.lobbyId, payload.quit.uuid);
+				}
+				else if (payload.ready) {
+					newState = await lobbyService.ready(ws.lobbyId, ws.userId);
+					console.log(newState);
+
+					if (newState.gameId) {
+						const startBuf = encodeServerMessage({
+							start: {
+								lobbyId: newState.lobbyId,
+								gameId: newState.gameId,
+								map: newState.map
+							}
+						});
+						app.publish(ws.lobbyId, startBuf, true);
+						return;
+					}
+					if (newState.tournamentId) {
+						const startTournamentBuf = encodeServerMessage({
+							startTournament: {
+								lobbyId: newState.lobbyId,
+								tournamentId: newState.tournamentId,
+								map: newState.map
+							}
+						});
+						app.publish(ws.lobbyId, startTournamentBuf, true);
+						return;
+					}
+				}
+
+				if (newState) {
+					const updateBuf = encodeServerMessage({ update: newState });
+					app.publish(ws.lobbyId, updateBuf, true);
+				}
+			} catch (err) {
+				console.error(`Error handling message: ${err.message}`);
+				const errorBuf = encodeServerMessage({ error: { message: err.message } });
+				ws.send(errorBuf, true);
+			}
+		},
+
+		close: (ws) => {
+			try {
+				sockets.get(ws.lobbyId)?.delete(ws);
+				const newState = lobbyService.quit(ws.lobbyId, ws.userId);
+				const updateBuf = encodeServerMessage({ update: newState });
+				app.publish(ws.lobbyId, updateBuf, true);
+			} catch (err) {
+				console.error(`Error during close: ${err.message}`);
+			}
+		}
+	});
+
+	return app;
+}
+
